@@ -12,7 +12,7 @@ After installing the node modules, run the `npm start` command once to create th
 
 ## Configuration
 - `useProxy` {bool} Enables or disables use of proxy.
-- `proxy` {string} HTTP/HTTPS/SOCKS proxy address, some formatting examples are 'https://user:pass@address:port' and 'socks5://address:port'.
+- `proxy` {string} HTTP/HTTPS/SOCKS proxy address, some formatting examples are 'https:\/\/user:pass@address:port' and 'socks5://address:port'.
 - `discordWebHook` {string} Link to discord webhook. Found in Discord Server > Server Settings > Integrations > Webhooks > Create and select desired webhook > 'Copy Webhook URL'
 - `discordNotifyGroup` {string} Member or role to ping for general notifications. If pinging role you need to ping the role ID. Goto Discord Server > Server Settings > Roles > Create and select desired role > 'Copy ID' > Format the ID as follows '<@&000000000000000000>'.
 - `discordErrorNotifyGroup` {string} Member or role to ping for errors. Do same as above for configuration.
