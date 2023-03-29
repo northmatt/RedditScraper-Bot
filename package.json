@@ -1,0 +1,28 @@
+{
+  "name": "RedditBot",
+  "version": "0.1.0",
+  "description": "Scrapping Bot for Reddit",
+  "main": "RedditBot.js",
+  "scripts": {
+    "start": "node src/RedditBot.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/northmatt/RedditScraper-Bot.git"
+  },
+  "author": "northmatt",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/northmatt/RedditScraper-Bot/issues"
+  },
+  "homepage": "https://github.com/northmatt/RedditScraper-Bot#readme",
+  "dependencies": {
+    "discord-webhook-node": "^1.1.8",
+    "log4js": "^6.3.0",
+    "puppeteer": "^9.0.0",
+    "puppeteer-extra": "^3.1.18",
+    "puppeteer-extra-plugin-stealth": "^2.7.8",
+    "puppeteer-page-proxy": "^1.2.8",
+    "random-useragent": "^0.5.0"
+  }
+}

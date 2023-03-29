@@ -1,0 +1,14 @@
+{
+	"useProxy": false,
+	"proxy": "",
+	"discordWebHook": "https://discord.com/api/webhooks/000000000000000000/XXX_XXXXXXXX_XXXXXXXXXXXXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+	"discordNotifyGroup": "<@&000000000000000000>",
+	"discordErrorNotifyGroup": "<@&000000000000000000>",
+	"subreddit": "",
+	"searchTerm": "",
+	"focalPoint": "",
+	"fastFindMode": false,
+	"refreshTime": 45.0,
+	"randomizedWaitCeiling": 30.0,
+	"headless": true
+}
