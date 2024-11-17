@@ -18,7 +18,7 @@ After installing the node modules, run the `npm start` command once to create th
 - `discordErrorNotifyGroup` {string} Member or role to ping for errors. Do same as above for configuration.
 - `subreddit` {string} Subreddit to search. It's capital sensitive.
 - `searchTerm` {string} Term to search. If `fastFindMode` is set to `true` then it may require regex formatting (To be determined).
-- `focalPoint` {string} If subreddit is a marketplace and has \[H\]\/\[W\] then you can focus on a specific part (Not implemented).
+- `focalPoint` {string} If subreddit is a marketplace and has \[H\]\/\[W\] then you can focus on a specific part (Not implemented). Replace with `regexStrip`, uses regex grouping to strip title, then retries `searchTerm` on it.
 - `fastFindMode` {bool} Controls whether the bot uses the "faster but more bandwidth heavy" or "slower but less bandwidth heavy" method (fastFindMode is not implemented yet).
 - `refreshTime` {float} Base wait time in seconds.
 - `randomizedWaitCeiling` {float} Extra random time to wait in seconds.

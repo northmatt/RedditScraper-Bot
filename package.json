@@ -18,6 +18,7 @@
   "homepage": "https://github.com/northmatt/RedditScraper-Bot#readme",
   "dependencies": {
     "discord-webhook-node": "^1.1.8",
+    "fuzzysort": "^2.0.4",
     "log4js": "^6.3.0",
     "puppeteer": "^9.0.0",
     "puppeteer-extra": "^3.1.18",

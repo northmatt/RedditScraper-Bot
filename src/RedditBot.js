@@ -4,6 +4,8 @@ const useProxy = require('puppeteer-page-proxy');
 const randomUseragent = require("random-useragent");
 const log4js = require('log4js');
 const fs = require('fs');
+const readline = require('readline');
+const fuzzysort = require('fuzzysort');
 const { Webhook, MessageBuilder } = require('discord-webhook-node');
 const slowSearchFetch = require('./SearchFetchSlow.json');
 const fastSearchFetch = require('./SearchFetchFast.json');
@@ -20,10 +22,11 @@ log4js.configure({
 });
 
 const logger = log4js.getLogger("Reddit Bot");
+const rl = readline.createInterface({input: process.stdin, output: process.stdout});
 let config = null;
 let discordWebhook = null;
 
-const miscInfo = {"errCnt": 0, "state": 0, "lastPostDate": "", "authHeadersIndex": 0, "authHeaders": [], "pageCDPSession": null};
+const miscInfo = {"errCnt": 0, "state": 0, "lastPostDate": null, "authHeadersIndex": 0, "authHeaders": [], "pageCDPSession": null};
 
 /**
  * Tries to find the config file, creates one if one doesnt exist, and does basic error checking on the config file
@@ -41,18 +44,18 @@ async function FindConfigFile() {
 		logger.info("Created new config file. Please set values");
 		return false;
 	}
-	
+
 	if (config.useProxy && config.proxy == "") {
 		logger.error("Configuration file has bad proxy settings");
 		return false;
 	}
-	
+
 	//Consider allowing searchTerm having an empty value?
 	if (config.subreddit == "" || config.searchTerm == "") {
 		logger.error("Configuration file has bad reddit settings");
 		return false;
 	}
-	
+
 	return true;
 }
 
@@ -70,8 +73,8 @@ async function DynamicTimeout(page, doRandomTime = true, timeVariable = 0) {
 }
 
 /**
- * Sends an HTTP request via the fetch protocol
- * @page 			{page}	Page one wants to target
+ * Sends an HTTPS request via the fetch protocol
+ * @page 			{page}	Page to target
  * @fetchInput	 	{JSON}	Fetch request
 */
 async function GetFetch(page, fetchInput) {
@@ -91,7 +94,7 @@ async function GetFetch(page, fetchInput) {
 		const jsonData = (statusCode == 200) ? await response.json() : null;
 		return await {"json":jsonData, "statusCode":statusCode};
 	}, fetchInput);
-	
+
 	return fetchOutput;
 }
 
@@ -105,7 +108,7 @@ async function DiscordNotif(notifType = 0, notifInfo = null) {
 		logger.error("No Discord webhook available");
 		return;
 	}
-	
+
 	const embed = new MessageBuilder()
 		.setThumbnail('https://raw.githubusercontent.com/jef/streetmerchant/main/docs/assets/images/streetmerchant-logo.png')
 		.setColor('#52b788')
@@ -129,9 +132,9 @@ async function DiscordNotif(notifType = 0, notifInfo = null) {
 			embed.setText(config.discordNotifyGroup);
 			embed.setDescription(`> ${notifInfo.title}`);
 			embed.addField('Post ID', `${notifInfo.id}`, true);
-			embed.addField('Post Timestamp', `${notifInfo.createdAt.substring(0, 19)}`, true);
+			embed.addField('Post Timestamp', `${config.fastFindMode ? (notifInfo.createdAt / 1000) : notifInfo.createdAt.substring(0, 19)}`, true);
 			embed.addField('Post Author', `${notifInfo.author}`, true);
-			embed.setURL(`${notifInfo.url}`);
+			embed.setURL(`https://www.reddit.com/r/${config.subreddit}/comments/${notifInfo.id.substring(3, notifInfo.id.length)}`);
 
 			break;
 		default:
@@ -167,13 +170,55 @@ async function ClearPageData(page) {
 async function InitFastFindMode(page) {
 	//SUBREDDIT_AREA	config.subreddit
 	fastSearchFetch.url = fastSearchFetch.urlTemplate.replace("SUBREDDIT_AREA", `${config.subreddit}`);
+	
+	miscInfo.lastPostDate = 0;
 
-	//-flair:\<[^\s]+\>
-	//flair:\<[^\s]+\>
+	//"-flair:\<[^\s]+\>"	"flair:\<[^\s]+\>"
+	//Parent array is AND based while child arrays are OR based
+	const tempSearch = config.searchTerm.trim().split(' ');
+	const tempSearchArray = [];
+	let firstIndex = tempSearch.length;
+	let lastIndex = firstIndex;
 
-	const tempSearch = config.searchTerm.split(' ');
+	//Format OR search
+	while (firstIndex != -1) {
+		//When OR block (1+ OR statements in a row) is found, find length of OR block
+		for (let i = firstIndex; i < tempSearch.length; i += 2) {
+			const tempDataBlock = {"stringData":"", "inverse":false};
+			tempDataBlock.inverse = tempSearch[i - 1].charAt(0) == "-";
+			tempDataBlock.stringData = tempDataBlock.inverse ? tempSearch[i - 1].substring(1, tempSearch[i - 1].length) : tempSearch[i - 1];
+			tempSearchArray.push(tempDataBlock);
 
-	return false;
+			if (tempSearch[i] != "OR")
+				break;
+
+			lastIndex = i;
+		}
+
+		//"Move" OR block from parent array into child array
+		if (0 < firstIndex && firstIndex < tempSearch.length)
+			tempSearch.splice(firstIndex - 1, lastIndex - firstIndex + 3, [...tempSearchArray]);
+
+		//Variable management, find next OR block
+		tempSearchArray.length = 0;
+		firstIndex = tempSearch.findIndex((element) => element == "OR");
+		lastIndex = firstIndex;
+	}
+
+	//Format rest of search
+	tempSearch.forEach((curSearchObject, curSearchIndex) => {
+		if (typeof curSearchObject != "string")
+			return;
+
+		const tempDataBlock = {"stringData":"", "inverse":false};
+		tempDataBlock.inverse = curSearchObject.charAt(0) == "-";
+		tempDataBlock.stringData = tempDataBlock.inverse ? curSearchObject.substring(1, curSearchObject.length) : curSearchObject;
+		tempSearch.splice(curSearchIndex, 1, tempDataBlock);
+	});
+	
+	config.searchTerm = tempSearch;
+
+	return true;
 }
 
 async function InitSlowFindMode(page) {
@@ -189,22 +234,81 @@ async function InitSlowFindMode(page) {
 
 	logger.info(`Finished collecting auth tokens. Collected ${miscInfo.authHeaders.length} auth tokens.`);
 	slowSearchFetch.options.headers.authorization = miscInfo.authHeaders[miscInfo.authHeadersIndex];
-	
+
 	//SEARCH_AREA		config.searchTerm
 	//SUBREDDIT_AREA	config.subreddit
 	//BODY_ID_AREA		35022e8cc9cf
 	//QUERY_ID_AREA		e625ce6f-050c-4687-912a-e0f605fe7590
 	slowSearchFetch.options.body = slowSearchFetch.urlTemplate.replaceAll("BODY_ID_AREA", "35022e8cc9cf").replaceAll("QUERY_ID_AREA", "e625ce6f-050c-4687-912a-e0f605fe7590").replaceAll("SUBREDDIT_AREA", `${config.subreddit}`).replaceAll("SEARCH_AREA", `${config.searchTerm}`);
 	
+	miscInfo.lastPostDate = "";
+
 	return true;
 }
 
-async function RunFastFindMode(page, fetchOutput) {
+async function RunFastFindMode(page, rawPostInfo) {
 	//fetchJSON.posts[fetchJSON.postIds[0]].created			{int}
+	//fetchJSON.posts[fetchJSON.postIds[0]].postId			{string}
+	//fetchJSON.posts[fetchJSON.postIds[0]].author			{string}
 	//fetchJSON.posts[fetchJSON.postIds[0]].title			{string}
 	//fetchJSON.posts[fetchJSON.postIds[0]].flair[1].text	{string}
+	//posts[...].media.richtextContent.document[0].c[0].t	{string}
 
-	return false;
+	if (rawPostInfo.postIds == null || rawPostInfo.posts == null)
+		return null;
+
+	let tempPostId = "";
+	let tempPostIdPrev = "";
+	let tempPostsFound = -1;
+	rawPostInfo.postIds.forEach(curPostId => {
+		if (rawPostInfo.posts[curPostId].isSponsored || rawPostInfo.posts[curPostId].created < miscInfo.lastPostDate || (tempPostId != "" && miscInfo.lastPostDate == 0))
+			return;
+		
+		//Stuff to search
+		const postInfoText = [];
+		postInfoText.push(rawPostInfo.posts[curPostId].title);
+		postInfoText.push("flair:" + rawPostInfo.posts[curPostId].flair[1].text);
+
+		//Search logic (consider fuzzy search, consider search with qoutes to block fuzzy searches together)
+		let foundThing = true;
+		let foundThingTemp = false;
+		config.searchTerm.forEach(curSearchTerm => {
+			//Truly the best way to test for arrays, idk why "typeof" returns "object" for arrays containing objects but it does
+			if (curSearchTerm.length != null) {
+				return;
+			}
+			
+			foundThingTemp = true;
+			postInfoText.every(curPostInfoText => {
+				foundThingTemp = curPostInfoText.toLowerCase().includes(curSearchTerm.stringData.toLowerCase()) ^ curSearchTerm.inverse;
+				return !foundThingTemp;
+			});
+			
+			if (foundThingTemp)
+				return;
+			
+			foundThing = false;
+		});
+		
+		if (!foundThing)
+			return;
+
+		tempPostIdPrev = tempPostId;
+		tempPostId = curPostId;
+
+		tempPostsFound++;
+	});
+	
+	if (tempPostId == "")
+		return null;
+
+	const postInfo = rawPostInfo.posts[tempPostIdPrev == "" ? tempPostId : tempPostIdPrev];
+
+	//New check equal to previous check, previous check empty (start of program), incase most recent post was deleted
+	const newPost = !(miscInfo.lastPostDate == postInfo.created || miscInfo.lastPostDate == 0 || postInfo.created < miscInfo.lastPostDate);
+
+	//														Date.Format(postInfo.created)
+	return {"id":postInfo.postId, "title":postInfo.title, "createdAt":postInfo.created, "author":postInfo.author, "newPost":newPost, "totalPostsFound":tempPostsFound};
 }
 
 async function RunSlowFindMode(page, rawPostInfo) {
@@ -218,16 +322,16 @@ async function RunSlowFindMode(page, rawPostInfo) {
 	await ClearPageData(page);
 
 	logger.debug(`Changed slowSearchFetch header auth: ${slowSearchFetch.options.headers.authorization}`);
-	
+
 	if (rawPostInfo.data.search.general.posts == null || rawPostInfo.data.search.general.posts.edges[0].node == null)
 		return null;
-	
+
 	const postInfo = rawPostInfo.data.search.general.posts.edges[0].node;
 
 	//New check equal to previous check, previous check empty (start of program), incase most recent post was deleted
 	const newPost = !(miscInfo.lastPostDate == postInfo.createdAt || miscInfo.lastPostDate == "" || Date.parse(postInfo.createdAt) < Date.parse(miscInfo.lastPostDate));
 
-	return {"id":postInfo.id, "title":postInfo.title, "createdAt":postInfo.createdAt, "author":postInfo.authorInfo.name, "url":postInfo.url, "newPost":newPost};
+	return {"id":postInfo.id, "title":postInfo.title, "createdAt":postInfo.createdAt, "author":postInfo.authorInfo.name, "newPost":newPost, "totalPostsFound":1};
 }
 
 async function InitBrowser() {
@@ -244,6 +348,7 @@ async function InitBrowser() {
 	puppeteer.use(stealthPlugin());
 	const browser = await puppeteer.launch({
 		headless: config.headless,
+		args: [`--user-agent=${UA}`],
 		defaultViewport: { width: 854, height: 480 }
 	});
 	const page = await browser.newPage();
@@ -298,7 +403,7 @@ async function InitPages(page) {
 async function InitSite(page) {
 	initSiteLabel: try {
 		await page.goto(`https://www.reddit.com/r/${config.subreddit}`, { timeout: 120000, waitUntil: 'networkidle2' });
-		
+
 		if (config.fastFindMode ? !(await InitFastFindMode(page)) : !(await InitSlowFindMode(page)))
 			break initSiteLabel;
 
@@ -306,7 +411,7 @@ async function InitSite(page) {
 	} catch (err) {
 		logger.error(`IS >> ${err.message}`);
 	}
-	
+
 	return false;
 }
 
@@ -355,25 +460,30 @@ async function MainLoop(page) {
 			break mainLoopLabel;
 		}
 
-		const postInfo = config.fastFindMode ? (await RunFastFindMode(page, fetchOutput.json)) : (await RunSlowFindMode(page, fetchOutput.json));
+		let continueWhileLoop = false;
+		do {
+			const postInfo = config.fastFindMode ? (await RunFastFindMode(page, fetchOutput.json)) : (await RunSlowFindMode(page, fetchOutput.json));
 
-		miscInfo.errCnt = 0;
+			miscInfo.errCnt = 0;
 
-		if (postInfo == null) {
-			logger.warn(`No new posts found`);
-			break mainLoopLabel;
-		}
+			if (postInfo == null) {
+				logger.warn(`No new posts found`);
+				break mainLoopLabel;
+			}
 
-		if (!postInfo.newPost) {
-			logger.warn(`No new posts found (Last upload date: ${postInfo.createdAt.substring(0, 19)})`);
+			if (!postInfo.newPost) {
+				logger.warn(`No new posts found (Last upload date: ${config.fastFindMode ? (postInfo.createdAt / 1000) : postInfo.createdAt.substring(0, 19)})`);
+				miscInfo.lastPostDate = postInfo.createdAt;
+				break mainLoopLabel;
+			}
+			
+			continueWhileLoop = (postInfo.totalPostsFound > 1);
+
 			miscInfo.lastPostDate = postInfo.createdAt;
-			break mainLoopLabel;
-		}
 
-		miscInfo.lastPostDate = postInfo.createdAt;
-
-		logger.info(`Post ${postInfo.id} uploaded at ${postInfo.createdAt.substring(11, 19)}, sending Discord notification`);
-		DiscordNotif(2, postInfo);
+			logger.info(`Post ${postInfo.id.substring(3, postInfo.id.length)} uploaded at ${config.fastFindMode ? (postInfo.createdAt / 1000) : postInfo.createdAt.substring(11, 19)}, sending Discord notification`);
+			DiscordNotif(2, postInfo);
+		} while (continueWhileLoop)
 	} catch (err) {
 		logger.error(`ML >> ${err.message}`);
 		miscInfo.errCnt++;
@@ -384,7 +494,7 @@ async function MainLoop(page) {
 }
 
 async function Main() {
-	logger.info("Reddit Scraping Bot Started");
+	logger.info("Reddit Scraping Bot Started, press Return to quit on next refresh");
 
 	if (!await FindConfigFile())
 		return;
@@ -398,6 +508,8 @@ async function Main() {
 	const page = await InitBrowser();
 
 	InitPages(page);
+	
+	rl.question('', ans => { miscInfo.state = 2; });
 
 	while (miscInfo.state < 2) {
 		switch (miscInfo.state) {
@@ -428,6 +540,7 @@ async function Run() {
 	}
 
 	log4js.shutdown();
+	rl.close();
 }
 
 Run();
